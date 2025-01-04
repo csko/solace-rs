@@ -71,6 +71,7 @@ struct UncheckedSessionProps<Host, Vpn, Username, Password> {
     calculate_message_expiration: Option<bool>,
     no_local: Option<bool>,
     modifyprop_timeout_ms: Option<u64>,
+    ssl_trust_store_dir: Option<Vec<u8>>,
 
     // TODO: need to check if some of these params will break other assumptions
     // ex: we might check for ok status on send but if send_blocking is set to false
@@ -130,6 +131,7 @@ impl<Host, Vpn, Username, Password> Default
             subscribe_blocking: None,
             block_while_connecting: None,
             topic_dispatch: None,
+            ssl_trust_store_dir: None,
         }
     }
 }
@@ -397,6 +399,10 @@ where
         self.props.modifyprop_timeout_ms = Some(modifyprop_timeout_ms);
         self
     }
+    pub fn ssl_trust_store_dir<ClientName: Into<Vec<u8>>>(mut self, ssl_trust_store_dir: ClientName) -> Self {
+        self.props.ssl_trust_store_dir = Some(ssl_trust_store_dir.into());
+        self
+    }
 }
 
 struct CheckedSessionProps {
@@ -432,6 +438,7 @@ struct CheckedSessionProps {
     calculate_message_expiration: Option<bool>,
     no_local: Option<bool>,
     modifyprop_timeout_ms: Option<CString>,
+    ssl_trust_store_dir: Option<CString>,
 }
 
 impl CheckedSessionProps {
@@ -560,6 +567,10 @@ impl CheckedSessionProps {
         }
         if let Some(x) = &self.modifyprop_timeout_ms {
             props.push(ffi::SOLCLIENT_SESSION_PROP_MODIFYPROP_TIMEOUT_MS.as_ptr() as *const i8);
+            props.push(x.as_ptr());
+        }
+        if let Some(x) = &self.ssl_trust_store_dir {
+            props.push(ffi::SOLCLIENT_SESSION_PROP_SSL_TRUST_STORE_DIR.as_ptr() as *const i8);
             props.push(x.as_ptr());
         }
 
@@ -785,6 +796,11 @@ where
             Some(x) => Some(CString::new(x.to_string())?),
             None => None,
         };
+        let ssl_trust_store_dir = match value.ssl_trust_store_dir {
+            Some(x) => Some(CString::new(x)?),
+            None => None,
+        };
+        
 
         Ok(Self {
             host_name,
@@ -817,6 +833,7 @@ where
             calculate_message_expiration: value.calculate_message_expiration,
             no_local: value.no_local,
             modifyprop_timeout_ms,
+            ssl_trust_store_dir
         })
     }
 }
