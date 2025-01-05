@@ -92,6 +92,13 @@ impl fmt::Debug for InboundMessage {
                 f.field("payload", &v);
             }
         }
+
+        if self.get_xml_part().is_ok_and(|v| v.is_some()) {
+            if let Ok(v) = std::str::from_utf8(self.get_xml_part().unwrap().unwrap()) {
+                f.field("xml_part", &v);
+            }
+        }
+
         f.finish()
     }
 }
