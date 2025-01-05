@@ -70,5 +70,5 @@ The current minimum supported Rust version (MSRV) is 1.70.0.
 - [x] linux
 - [x] linux-musl
 - [x] macos-12
-- [ ] windows (no plans)
+- [x] windows
 
