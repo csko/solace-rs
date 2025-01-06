@@ -126,6 +126,8 @@ pub enum SessionError {
     SubscriptionFailure(String, SolClientReturnCode, SolClientSubCode),
     #[error("session failed to unsubscribe on topic. SolClient return code: {0} subcode: {1}")]
     UnsubscriptionFailure(String, SolClientReturnCode, SolClientSubCode),
+    #[error("session failed to subscribe on queue.")]
+    QueueSubscriptionFailure(String),
     #[error("cache request failed")]
     CacheRequestFailure(SolClientReturnCode, SolClientSubCode),
     #[error("could not publish message. SolClient return code: {0}")]

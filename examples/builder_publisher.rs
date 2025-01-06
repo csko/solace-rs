@@ -8,7 +8,7 @@ use solace_rs::{
     message::{
         DeliveryMode, DestinationType, InboundMessage, MessageDestination, OutboundMessageBuilder,
     },
-    session::SessionEvent,
+    session::{event::FlowEvent, SessionEvent},
     Context, SolaceLogLevel,
 };
 
@@ -35,6 +35,9 @@ fn main() {
         })
         .on_event(|e: SessionEvent| {
             println!("on_event handler got: {}", e);
+        })
+        .on_flow_event(|e: FlowEvent| {
+            println!("on_flow_event handler got: {}", e);
         })
         .build()
         .expect("Could not create session");

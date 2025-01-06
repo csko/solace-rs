@@ -38,6 +38,8 @@ pub struct Session<
     _msg_fn_ptr: Option<Box<Box<M>>>,
     #[allow(dead_code, clippy::redundant_allocation)]
     _event_fn_ptr: Option<Box<Box<E>>>,
+    #[allow(dead_code, clippy::redundant_allocation)]
+    _flow_func_info: ffi::solClient_flow_createFuncInfo_t,
 }
 
 unsafe impl<M: FnMut(InboundMessage) + Send, E: FnMut(SessionEvent) + Send> Send
@@ -102,6 +104,95 @@ impl<'session, M: FnMut(InboundMessage) + Send, E: FnMut(SessionEvent) + Send>
             ));
         }
         Ok(())
+    }
+
+    pub fn subscribe_queue<T>(&self, queue: T) -> Result<()>
+    where
+        T: Into<Vec<u8>>,
+    {
+        if unsafe {
+            ffi::solClient_session_isCapable(
+                self._session_ptr,
+                ffi::SOLCLIENT_SESSION_CAPABILITY_ENDPOINT_MANAGEMENT.as_ptr() as *const i8,
+            )
+        } == 0
+        {
+            return Err(SessionError::QueueSubscriptionFailure(String::from(
+                "Endpoint management not supported on this appliance.",
+            )));
+        }
+
+        let c_queue = CString::new(queue)?;
+
+        // Provision Queue
+        let mut prov_props: [*const i8; 5] = [
+            ffi::SOLCLIENT_ENDPOINT_PROP_ID.as_ptr() as *const i8,
+            ffi::SOLCLIENT_ENDPOINT_PROP_QUEUE.as_ptr() as *const i8,
+            ffi::SOLCLIENT_ENDPOINT_PROP_NAME.as_ptr() as *const i8,
+            c_queue.as_ptr(),
+            std::ptr::null(),
+        ];
+
+        let subscription_raw_rc = unsafe {
+            ffi::solClient_session_endpointProvision(
+                prov_props.as_mut_ptr(),
+                self._session_ptr,
+                ffi::SOLCLIENT_PROVISION_FLAGS_WAITFORCONFIRM
+                    | ffi::SOLCLIENT_PROVISION_FLAGS_IGNORE_EXIST_ERRORS,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        let rc = SolClientReturnCode::from_raw(subscription_raw_rc);
+        if !rc.is_ok() {
+            let subcode = get_last_error_info();
+            return Err(SessionError::SubscriptionFailure(
+                c_queue.to_string_lossy().into_owned(),
+                rc,
+                subcode,
+            ));
+        }
+        // Set up Flow
+        let mut flow_props: [*const i8; 7] = [
+            ffi::SOLCLIENT_FLOW_PROP_BIND_ENTITY_ID.as_ptr() as *const i8,
+            ffi::SOLCLIENT_FLOW_PROP_BIND_ENTITY_QUEUE.as_ptr() as *const i8,
+            ffi::SOLCLIENT_FLOW_PROP_ACKMODE.as_ptr() as *const i8,
+            ffi::SOLCLIENT_FLOW_PROP_ACKMODE_AUTO.as_ptr() as *const i8,
+            ffi::SOLCLIENT_FLOW_PROP_BIND_NAME.as_ptr() as *const i8,
+            c_queue.as_ptr(),
+            std::ptr::null(),
+        ];
+
+        let mut flow_func_info = self._flow_func_info; // copy
+        let mut flow_p: ffi::solClient_opaqueFlow_pt = std::ptr::null_mut();
+        let flow_raw_rc = unsafe {
+            ffi::solClient_session_createFlow(
+                flow_props.as_mut_ptr(),
+                self._session_ptr,
+                &mut flow_p,
+                &mut flow_func_info,
+                std::mem::size_of::<ffi::solClient_flow_createFuncInfo_t>(),
+            )
+        };
+
+        let rc = SolClientReturnCode::from_raw(flow_raw_rc);
+        if !rc.is_ok() {
+            let subcode = get_last_error_info();
+            return Err(SessionError::SubscriptionFailure(
+                c_queue.to_string_lossy().into_owned(),
+                rc,
+                subcode,
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn unsubscribe_queue<T>(&self, _queue: T) -> Result<()>
+    where
+        T: Into<Vec<u8>>,
+    {
+        todo!();
     }
 
     pub fn request(

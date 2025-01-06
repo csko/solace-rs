@@ -4,7 +4,7 @@ the session.
 */
 use std::{thread::sleep, time::Duration};
 
-use solace_rs::{message::InboundMessage, session::SessionEvent, Context, SolaceLogLevel};
+use solace_rs::{message::InboundMessage, session::{event::FlowEvent, SessionEvent}, Context, SolaceLogLevel};
 
 fn main() {
     let solace_context = Context::new(SolaceLogLevel::Warning).unwrap();
@@ -31,6 +31,9 @@ fn main() {
         .on_message(on_message)
         .on_event(|e: SessionEvent| {
             println!("on_event handler got: {}", e);
+        })
+        .on_flow_event(|e: FlowEvent| {
+            println!("on_flow_event handler got: {}", e);
         })
         .build()
         .unwrap();

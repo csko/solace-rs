@@ -1,10 +1,10 @@
 use ffi::solClient_getLastErrorInfo;
 use num_traits::FromPrimitive;
 
-use crate::message::InboundMessage;
+use crate::{message::InboundMessage, session::event::FlowEvent};
 use crate::session::SessionEvent;
 use crate::SolClientSubCode;
-use solace_rs_sys::{self as ffi, solClient_flow_event_t};
+use solace_rs_sys::{self as ffi};
 use std::mem;
 
 pub fn on_message_trampoline<'s, F>(_closure: &'s F) -> ffi::solClient_session_rxMsgCallbackFunc_t
@@ -23,7 +23,7 @@ where
 
 pub fn on_flow_event_trampoline<'s, F>(_closure: &'s F) -> ffi::solClient_flow_eventCallbackFunc_t
 where
-    F: FnMut(solClient_flow_event_t) + Send + 's,
+    F: FnMut(FlowEvent) + Send + 's,
 {
     Some(static_on_flow_event::<F>)
 }
@@ -87,7 +87,7 @@ extern "C" fn static_on_flow_event<'s, F>(
     flow_event_info_p: ffi::solClient_flow_eventCallbackInfo_pt, //non-null
     raw_user_closure: *mut ::std::os::raw::c_void,      // can be null
 ) where
-    F: FnMut(solClient_flow_event_t) + Send + 's, // *mut solClient_flow_eventCallbackInfo
+    F: FnMut(FlowEvent) + Send + 's, // *mut solClient_flow_eventCallbackInfo
 {
     let non_null_raw_user_closure = std::ptr::NonNull::new(raw_user_closure);
 
@@ -95,10 +95,14 @@ extern "C" fn static_on_flow_event<'s, F>(
         return;
     };
     let raw_event = unsafe { (*flow_event_info_p).flowEvent };
-
+    let Some(event) = FlowEvent::from_u32(raw_event) else {
+        // TODO
+        // log a warning
+        return;
+    };
     let user_closure: &mut Box<F> = unsafe { mem::transmute(raw_user_closure) };
 
-    user_closure(raw_event);
+    user_closure(event);
 }
 
 pub(crate) fn get_last_error_info() -> SolClientSubCode {

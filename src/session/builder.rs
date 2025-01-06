@@ -8,9 +8,13 @@ use std::{
 use crate::{
     message::InboundMessage,
     session::SessionEvent,
-    util::{get_last_error_info, on_event_trampoline, on_message_trampoline},
+    util::{
+        get_last_error_info, on_event_trampoline, on_flow_event_trampoline, on_message_trampoline,
+    },
     Context, Session, SolClientReturnCode, SolClientSubCode,
 };
+
+use super::event::FlowEvent;
 
 #[derive(thiserror::Error, Debug)]
 pub enum SessionBuilderError {
@@ -140,17 +144,18 @@ impl<Host, Vpn, Username, Password> Default
 /// the `session` function such as buffer size, timeouts, and more.
 ///
 /// For more detailed documentation on all the configuration field, refer to [the official library documentation](https://docs.solace.com/API-Developer-Online-Ref-Documentation/c/group___session_props.html).
-pub struct SessionBuilder<Host, Vpn, Username, Password, OnMessage, OnEvent> {
+pub struct SessionBuilder<Host, Vpn, Username, Password, OnMessage, OnEvent, OnFlowEvent> {
     context: Context,
     props: UncheckedSessionProps<Host, Vpn, Username, Password>,
 
     // callbacks
     on_message: Option<OnMessage>,
     on_event: Option<OnEvent>,
+    on_flow_event: Option<OnFlowEvent>,
 }
 
-impl<Host, Vpn, Username, Password, OnMessage, OnEvent>
-    SessionBuilder<Host, Vpn, Username, Password, OnMessage, OnEvent>
+impl<Host, Vpn, Username, Password, OnMessage, OnEvent, OnFlowEvent>
+    SessionBuilder<Host, Vpn, Username, Password, OnMessage, OnEvent, OnFlowEvent>
 {
     pub(crate) fn new(context: Context) -> Self {
         Self {
@@ -158,12 +163,13 @@ impl<Host, Vpn, Username, Password, OnMessage, OnEvent>
             props: UncheckedSessionProps::default(),
             on_message: None,
             on_event: None,
+            on_flow_event: None,
         }
     }
 }
 
-impl<'session, Host, Vpn, Username, Password, OnMessage, OnEvent>
-    SessionBuilder<Host, Vpn, Username, Password, OnMessage, OnEvent>
+impl<'session, Host, Vpn, Username, Password, OnMessage, OnEvent, OnFlowEvent>
+    SessionBuilder<Host, Vpn, Username, Password, OnMessage, OnEvent, OnFlowEvent>
 where
     Host: Into<Vec<u8>>,
     Vpn: Into<Vec<u8>>,
@@ -171,6 +177,7 @@ where
     Password: Into<Vec<u8>>,
     OnMessage: FnMut(InboundMessage) + Send + 'session,
     OnEvent: FnMut(SessionEvent) + Send + 'session,
+    OnFlowEvent: FnMut(FlowEvent) + Send + 'session,
 {
     pub fn build(mut self) -> Result<Session<'session, OnMessage, OnEvent>> {
         let config = CheckedSessionProps::try_from(mem::take(&mut self.props))?;
@@ -205,7 +212,14 @@ where
             }
             _ => (None, ptr::null_mut(), None),
         };
-
+        let (static_on_flow_event_callback, user_on_flow_event) = match self.on_flow_event {
+            Some(f) => {
+                let tramp = on_flow_event_trampoline(&f);
+                let mut func = Box::new(Box::new(f));
+                (tramp, func.as_mut() as *const _ as *mut _)
+            }
+            _ => (None, ptr::null_mut()),
+        };
         // Function information for Session creation.
         // The application must set the eventInfo callback information. All Sessions must have an event callback registered.
         let mut session_func_info: ffi::solClient_session_createFuncInfo_t =
@@ -219,6 +233,21 @@ where
                     user_p: user_on_event,
                 },
                 rxMsgInfo: ffi::solClient_session_createRxMsgCallbackFuncInfo {
+                    callback_p: static_on_message_callback,
+                    user_p: user_on_message,
+                },
+            };
+        let flow_func_info: ffi::solClient_flow_createFuncInfo_t =
+            ffi::solClient_flow_createFuncInfo_t {
+                rxInfo: ffi::solClient_flow_createRxCallbackFuncInfo_t {
+                    callback_p: ptr::null_mut(),
+                    user_p: ptr::null_mut(),
+                },
+                eventInfo: ffi::solClient_flow_createEventCallbackFuncInfo_t {
+                    callback_p: static_on_flow_event_callback,
+                    user_p: user_on_flow_event,
+                },
+                rxMsgInfo: ffi::solClient_flow_createRxMsgCallbackFuncInfo_t {
                     callback_p: static_on_message_callback,
                     user_p: user_on_message,
                 },
@@ -251,6 +280,7 @@ where
             Ok(Session {
                 _msg_fn_ptr: msg_func_ptr,
                 _event_fn_ptr: event_func_ptr,
+                _flow_func_info: flow_func_info,
                 _session_ptr: session_pt,
                 context: self.context,
                 lifetime: PhantomData,
@@ -288,7 +318,10 @@ where
         self.on_event = Some(on_event);
         self
     }
-
+    pub fn on_flow_event(mut self, on_flow_event: OnFlowEvent) -> Self {
+        self.on_flow_event = Some(on_flow_event);
+        self
+    }
     pub fn buffer_size_bytes(mut self, buffer_size_bytes: u64) -> Self {
         self.props.buffer_size_bytes = Some(buffer_size_bytes);
         self
@@ -399,7 +432,10 @@ where
         self.props.modifyprop_timeout_ms = Some(modifyprop_timeout_ms);
         self
     }
-    pub fn ssl_trust_store_dir<ClientName: Into<Vec<u8>>>(mut self, ssl_trust_store_dir: ClientName) -> Self {
+    pub fn ssl_trust_store_dir<ClientName: Into<Vec<u8>>>(
+        mut self,
+        ssl_trust_store_dir: ClientName,
+    ) -> Self {
         self.props.ssl_trust_store_dir = Some(ssl_trust_store_dir.into());
         self
     }
@@ -800,7 +836,6 @@ where
             Some(x) => Some(CString::new(x)?),
             None => None,
         };
-        
 
         Ok(Self {
             host_name,
@@ -833,7 +868,7 @@ where
             calculate_message_expiration: value.calculate_message_expiration,
             no_local: value.no_local,
             modifyprop_timeout_ms,
-            ssl_trust_store_dir
+            ssl_trust_store_dir,
         })
     }
 }

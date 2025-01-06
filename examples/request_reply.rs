@@ -13,7 +13,7 @@ use solace_rs::{
         DeliveryMode, DestinationType, InboundMessage, Message, MessageDestination,
         OutboundMessageBuilder,
     },
-    session::SessionEvent,
+    session::{event::FlowEvent, SessionEvent},
     Context, SolaceLogLevel,
 };
 
@@ -48,6 +48,9 @@ fn requester(context: Context) {
             Some(|e: SessionEvent| {
                 println!("on_event handler got: {}", e);
             }),
+            Some(|e: FlowEvent| {
+                println!("on_flow_event handler got: {}", e);
+            })
         )
         .expect("Could not create session");
 
@@ -83,6 +86,9 @@ fn responder(context: Context) {
             Some(|e: SessionEvent| {
                 println!("replier on_event handler got: {}", e);
             }),
+            Some(|e: FlowEvent| {
+                println!("on_flow_event handler got: {}", e);
+            })
         )
         .expect("Could not create responder");
 

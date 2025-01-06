@@ -1,5 +1,6 @@
 use crate::session::builder::SessionBuilder;
 use crate::session::builder::SessionBuilderError;
+use crate::session::event::FlowEvent;
 use crate::util::get_last_error_info;
 use crate::Session;
 use crate::{ContextError, SolClientReturnCode, SolaceLogLevel};
@@ -113,13 +114,13 @@ impl Context {
         })
     }
 
-    pub fn session_builder<Host, Vpn, Username, Password, OnMessage, OnEvent>(
+    pub fn session_builder<Host, Vpn, Username, Password, OnMessage, OnEvent, OnFlowEvent>(
         &self,
-    ) -> SessionBuilder<Host, Vpn, Username, Password, OnMessage, OnEvent> {
+    ) -> SessionBuilder<Host, Vpn, Username, Password, OnMessage, OnEvent, OnFlowEvent> {
         SessionBuilder::new(self.clone())
     }
 
-    pub fn session<'session, Host, Vpn, Username, Password, OnMessage, OnEvent>(
+    pub fn session<'session, Host, Vpn, Username, Password, OnMessage, OnEvent, OnFlowEvent>(
         &self,
         host_name: Host,
         vpn_name: Vpn,
@@ -127,6 +128,7 @@ impl Context {
         password: Password,
         on_message: Option<OnMessage>,
         on_event: Option<OnEvent>,
+        on_flow_event: Option<OnFlowEvent>,
     ) -> std::result::Result<Session<'session, OnMessage, OnEvent>, SessionBuilderError>
     where
         Host: Into<Vec<u8>>,
@@ -135,6 +137,7 @@ impl Context {
         Password: Into<Vec<u8>>,
         OnMessage: FnMut(InboundMessage) + Send + 'session,
         OnEvent: FnMut(SessionEvent) + Send + 'session,
+        OnFlowEvent: FnMut(FlowEvent) + Send + 'session,
     {
         let mut builder = SessionBuilder::new(self.clone())
             .host_name(host_name)
@@ -149,7 +152,9 @@ impl Context {
         if let Some(on_event) = on_event {
             builder = builder.on_event(on_event);
         }
-
+        if let Some(on_flow_event) = on_flow_event {
+            builder = builder.on_flow_event(on_flow_event);
+        }
         builder.build()
     }
 }

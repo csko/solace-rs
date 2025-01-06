@@ -11,7 +11,7 @@ use solace_rs::{
         DeliveryMode, DestinationType, InboundMessage, Message, MessageDestination,
         OutboundMessageBuilder,
     },
-    session::SessionEvent,
+    session::{event::FlowEvent, SessionEvent},
     Context, SolaceLogLevel,
 };
 
@@ -46,6 +46,7 @@ fn subscribe_and_publish() {
             "",
             Some(on_message),
             Some(|_: SessionEvent| {}),
+            Some(|_: FlowEvent| {}),
         )
         .expect("creating session");
     session.subscribe(topic).expect("subscribing to topic");
@@ -109,6 +110,7 @@ fn multi_subscribe_and_publish() {
                 let _ = tx0.send(payload.to_owned());
             }),
             Some(|_: SessionEvent| {}),
+            Some(|_: FlowEvent| {}),
         )
         .expect("creating session");
     session0.subscribe(topic).expect("subscribing to topic");
@@ -125,7 +127,7 @@ fn multi_subscribe_and_publish() {
                 };
                 let _ = tx1.send(payload.to_owned());
             }),
-            Some(|_: SessionEvent| {}),
+            Some(|_: SessionEvent| {}),Some(|_: FlowEvent| {}),
         )
         .expect("creating session");
     session1.subscribe(topic).expect("subscribing to topic");
@@ -204,7 +206,7 @@ fn unsubscribe_and_publish() {
             "default",
             "",
             Some(on_message),
-            Some(|_: SessionEvent| {}),
+            Some(|_: SessionEvent| {}),Some(|_: FlowEvent| {}),
         )
         .expect("creating session");
     session.subscribe(topic).expect("subscribing to topic");
@@ -289,7 +291,7 @@ fn multi_thread_publisher() {
                 "default",
                 "",
                 Some(on_message),
-                Some(|_: SessionEvent| {}),
+                Some(|_: SessionEvent| {}),Some(|_: FlowEvent| {}),
             )
             .expect("creating session"),
     ));
@@ -386,6 +388,7 @@ fn no_local_session() {
         .password("")
         .on_message(on_message)
         .on_event(|_: SessionEvent| {})
+        .on_flow_event(|_: FlowEvent| {})
         .no_local(true)
         .build()
         .expect("creating session");
@@ -433,7 +436,7 @@ fn auto_generate_tx_rx_session_fields() {
         .username("default")
         .password("")
         .on_message(on_message)
-        .on_event(|_: SessionEvent| {})
+        .on_event(|_: SessionEvent| {}).on_flow_event(|_: FlowEvent| {})
         // NOTE: there is bug in the solace lib where it does not copy over the message if there is
         // not enough space in the buffer. This can cause the TSan to trigger.
         .buffer_size_bytes(900_000)
@@ -503,6 +506,7 @@ fn request_and_reply() {
                     "",
                     Some(|_| {}),
                     Some(|_| {}),
+                    Some(|_| {}),
                 )
                 .unwrap();
             barrier.wait();
@@ -534,7 +538,7 @@ fn request_and_reply() {
                     Some(move |message: InboundMessage| {
                         let _ = tx.send(message);
                     }),
-                    Some(|_| {}),
+                    Some(|_| {}),Some(|_| {}),
                 )
                 .unwrap();
             session.subscribe(topic).unwrap();
