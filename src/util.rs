@@ -1,9 +1,9 @@
 use ffi::solClient_getLastErrorInfo;
 use num_traits::FromPrimitive;
 
-use crate::{message::InboundMessage, session::event::FlowEvent};
 use crate::session::SessionEvent;
 use crate::SolClientSubCode;
+use crate::{message::InboundMessage, session::event::FlowEvent};
 use solace_rs_sys::{self as ffi};
 use std::mem;
 
@@ -100,11 +100,10 @@ extern "C" fn static_on_flow_event<'s, F>(
         // log a warning
         return;
     };
-    let user_closure: &mut Box<F> = unsafe { mem::transmute(raw_user_closure) };
 
+    let user_closure = unsafe { &mut *(raw_user_closure.as_ptr() as *mut F) };
     user_closure(event);
 }
-
 pub(crate) fn get_last_error_info() -> SolClientSubCode {
     // Safety: erno is never null
     unsafe {
