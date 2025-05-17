@@ -18,7 +18,7 @@ fn main() {
         println!("on_message handler got: {:#?} ", message);
     };
 
-    let session = solace_context
+    let mut session = solace_context
         .session(
             "tcp://localhost:55554", // host
             "default",               // vpn

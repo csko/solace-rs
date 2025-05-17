@@ -17,8 +17,13 @@ documentation = "https://github.com/asimsedhain/solace-rs"
 [build-dependencies]
 bindgen = "0.66.1"
 tar = "0.4.38"
-ureq = { version = "2.10.1", features = ["tls"]}
+ureq = { version = "2.10.1", features = ["tls"] }
 flate2 = "1.0.26"
 cfg-if = "1.0"
-rustls = {version = "0.23.16", features = ["ring"]}
+rustls = { version = "0.23.27", default-features = false, features = [
+    "std",
+    "log",
+    "logging",
+    "ring",
+] }
 rustls-native-certs = "0.8.0"
