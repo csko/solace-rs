@@ -23,9 +23,9 @@ The C library is not included.
 
 [dependencies]
 enum_primitive = "0.1.1"
-num-traits = "0.2.15"
-thiserror = "1.0.40"
-solace-rs-sys = { version="1.1.0", path = "./solace-rs-sys" }
+num-traits = "0.2.19"
+thiserror = "2.0.12"
+solace-rs-sys = { version = "1.1.0", path = "./solace-rs-sys" }
 tracing = "0.1.37"
 
 [dev-dependencies]
