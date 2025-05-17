@@ -282,6 +282,7 @@ where
                 _event_fn_ptr: event_func_ptr,
                 _flow_func_info: flow_func_info,
                 _session_ptr: session_pt,
+                _flow_p: ptr::null_mut(),
                 context: self.context,
                 lifetime: PhantomData,
             })

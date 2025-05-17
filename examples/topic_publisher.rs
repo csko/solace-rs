@@ -30,7 +30,7 @@ fn main() {
             }),
             Some(|e: FlowEvent| {
                 println!("on_flow_event handler got: {}", e);
-            })
+            }),
         )
         .expect("Could not create session");
 

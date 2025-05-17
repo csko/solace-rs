@@ -28,6 +28,7 @@ pub struct Session<
     // Pointer to session
     // This pointer must never be allowed to leave the struct
     pub(crate) _session_ptr: ffi::solClient_opaqueSession_pt,
+    pub(crate) _flow_p: ffi::solClient_opaqueFlow_pt,
     // The `context` field is never accessed, but implicitly does
     // reference counting via the `Drop` trait.
     #[allow(dead_code)]
@@ -106,7 +107,7 @@ impl<'session, M: FnMut(InboundMessage) + Send, E: FnMut(SessionEvent) + Send>
         Ok(())
     }
 
-    pub fn subscribe_queue<T>(&self, queue: T) -> Result<()>
+    pub fn subscribe_queue<T>(&mut self, queue: T) -> Result<()>
     where
         T: Into<Vec<u8>>,
     {
@@ -165,12 +166,11 @@ impl<'session, M: FnMut(InboundMessage) + Send, E: FnMut(SessionEvent) + Send>
         ];
 
         let mut flow_func_info = self._flow_func_info; // copy
-        let mut flow_p: ffi::solClient_opaqueFlow_pt = std::ptr::null_mut();
         let flow_raw_rc = unsafe {
             ffi::solClient_session_createFlow(
                 flow_props.as_mut_ptr(),
                 self._session_ptr,
-                &mut flow_p,
+                &mut self._flow_p,
                 &mut flow_func_info,
                 std::mem::size_of::<ffi::solClient_flow_createFuncInfo_t>(),
             )
@@ -188,11 +188,54 @@ impl<'session, M: FnMut(InboundMessage) + Send, E: FnMut(SessionEvent) + Send>
         Ok(())
     }
 
-    pub fn unsubscribe_queue<T>(&self, _queue: T) -> Result<()>
+    pub fn unsubscribe_queue<T>(&mut self, queue: T) -> Result<()>
     where
         T: Into<Vec<u8>>,
     {
-        todo!();
+        if unsafe {
+            ffi::solClient_session_isCapable(
+                self._session_ptr,
+                ffi::SOLCLIENT_SESSION_CAPABILITY_ENDPOINT_MANAGEMENT.as_ptr() as *const i8,
+            )
+        } == 0
+        {
+            return Err(SessionError::QueueSubscriptionFailure(String::from(
+                "Endpoint management not supported on this appliance.",
+            )));
+        }
+        let c_queue = CString::new(queue)?;
+        // Remove Flow
+        let rc = unsafe { ffi::solClient_flow_destroy(&mut self._flow_p as *mut _) };
+        let rc = SolClientReturnCode::from_raw(rc);
+        if !rc.is_ok() {
+            let subcode = get_last_error_info();
+            return Err(SessionError::UnsubscriptionFailure(
+                c_queue.to_string_lossy().into_owned(),
+                rc,
+                subcode,
+            ));
+        }
+        // Deprovision Queue
+        let subscription_raw_rc = unsafe {
+            ffi::solClient_session_endpointDeprovision(
+                &mut c_queue.as_ptr(),
+                self._session_ptr,
+                ffi::SOLCLIENT_PROVISION_FLAGS_WAITFORCONFIRM
+                    | ffi::SOLCLIENT_PROVISION_FLAGS_IGNORE_EXIST_ERRORS,
+                std::ptr::null_mut(),
+            )
+        };
+        let rc = SolClientReturnCode::from_raw(subscription_raw_rc);
+        if !rc.is_ok() {
+            let subcode = get_last_error_info();
+            return Err(SessionError::UnsubscriptionFailure(
+                c_queue.to_string_lossy().into_owned(),
+                rc,
+                subcode,
+            ));
+        }
+
+        Ok(())
     }
 
     pub fn request(

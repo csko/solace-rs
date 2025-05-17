@@ -8,10 +8,8 @@ use solace_rs_sys as ffi;
 use tracing::warn;
 
 use crate::{
-    message::InboundMessage,
-    session::SessionEvent,
-    util::get_last_error_info,
-    Session, SessionError, SolClientReturnCode,
+    message::InboundMessage, session::SessionEvent, util::get_last_error_info, Session,
+    SessionError, SolClientReturnCode,
 };
 
 pub struct CacheSession<
