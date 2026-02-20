@@ -18,6 +18,17 @@ use tracing::warn;
 
 type Result<T> = std::result::Result<T, SessionError>;
 
+/// Flow configuration for queue subscriptions
+#[derive(Clone, Copy, Default)]
+pub struct FlowConfig {
+    /// Flow window size (default 255). Higher values allow more throughput.
+    pub window_size: Option<u32>,
+    /// ACK timer in ms (default 1000).
+    pub ack_timer_ms: Option<u32>,
+    /// ACK threshold (default 60).
+    pub ack_threshold: Option<u32>,
+}
+
 pub struct Session<
     'session,
     M: FnMut(InboundMessage) + Send + 'session,
@@ -41,6 +52,9 @@ pub struct Session<
     _event_fn_ptr: Option<Box<Box<E>>>,
     #[allow(dead_code, clippy::redundant_allocation)]
     _flow_func_info: ffi::solClient_flow_createFuncInfo_t,
+
+    /// Flow configuration for queue subscriptions
+    pub(crate) flow_config: FlowConfig,
 }
 
 unsafe impl<M: FnMut(InboundMessage) + Send, E: FnMut(SessionEvent) + Send> Send
@@ -154,16 +168,52 @@ impl<'session, M: FnMut(InboundMessage) + Send, E: FnMut(SessionEvent) + Send>
                 subcode,
             ));
         }
-        // Set up Flow
-        let mut flow_props: [*const i8; 7] = [
+
+        // Convert flow config values to CStrings (need to live until flow is created)
+        let window_size_str = self
+            .flow_config
+            .window_size
+            .map(|v| CString::new(v.to_string()).unwrap());
+        let ack_timer_str = self
+            .flow_config
+            .ack_timer_ms
+            .map(|v| CString::new(v.to_string()).unwrap());
+        let ack_threshold_str = self
+            .flow_config
+            .ack_threshold
+            .map(|v| CString::new(v.to_string()).unwrap());
+
+        tracing::info!(
+            "Flow config: window_size={:?}, ack_timer_ms={:?}, ack_threshold={:?}",
+            self.flow_config.window_size,
+            self.flow_config.ack_timer_ms,
+            self.flow_config.ack_threshold
+        );
+
+        // Set up Flow - build props dynamically based on config
+        let mut flow_props: Vec<*const i8> = vec![
             ffi::SOLCLIENT_FLOW_PROP_BIND_ENTITY_ID.as_ptr() as *const i8,
             ffi::SOLCLIENT_FLOW_PROP_BIND_ENTITY_QUEUE.as_ptr() as *const i8,
             ffi::SOLCLIENT_FLOW_PROP_ACKMODE.as_ptr() as *const i8,
             ffi::SOLCLIENT_FLOW_PROP_ACKMODE_AUTO.as_ptr() as *const i8,
             ffi::SOLCLIENT_FLOW_PROP_BIND_NAME.as_ptr() as *const i8,
             c_queue.as_ptr(),
-            std::ptr::null(),
         ];
+
+        if let Some(ref s) = window_size_str {
+            flow_props.push(ffi::SOLCLIENT_FLOW_PROP_WINDOWSIZE.as_ptr() as *const i8);
+            flow_props.push(s.as_ptr());
+        }
+        if let Some(ref s) = ack_timer_str {
+            flow_props.push(ffi::SOLCLIENT_FLOW_PROP_ACK_TIMER_MS.as_ptr() as *const i8);
+            flow_props.push(s.as_ptr());
+        }
+        if let Some(ref s) = ack_threshold_str {
+            flow_props.push(ffi::SOLCLIENT_FLOW_PROP_ACK_THRESHOLD.as_ptr() as *const i8);
+            flow_props.push(s.as_ptr());
+        }
+
+        flow_props.push(std::ptr::null());
 
         let mut flow_func_info = self._flow_func_info; // copy
         let flow_raw_rc = unsafe {

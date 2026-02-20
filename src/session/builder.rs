@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     message::InboundMessage,
-    session::SessionEvent,
+    session::{FlowConfig, SessionEvent},
     util::{
         get_last_error_info, on_event_trampoline, on_flow_event_trampoline, on_message_trampoline,
     },
@@ -77,6 +77,11 @@ struct UncheckedSessionProps<Host, Vpn, Username, Password> {
     modifyprop_timeout_ms: Option<u64>,
     ssl_trust_store_dir: Option<Vec<u8>>,
 
+    // Flow properties for queue subscriptions
+    flow_window_size: Option<u32>,
+    flow_ack_timer_ms: Option<u32>,
+    flow_ack_threshold: Option<u32>,
+
     // TODO: need to check if some of these params will break other assumptions
     // ex: we might check for ok status on send but if send_blocking is set to false
     // it will return can_block which will be assumed as an error
@@ -136,6 +141,9 @@ impl<Host, Vpn, Username, Password> Default
             block_while_connecting: None,
             topic_dispatch: None,
             ssl_trust_store_dir: None,
+            flow_window_size: None,
+            flow_ack_timer_ms: None,
+            flow_ack_threshold: None,
         }
     }
 }
@@ -180,6 +188,13 @@ where
     OnFlowEvent: FnMut(FlowEvent) + Send + 'session,
 {
     pub fn build(mut self) -> Result<Session<'session, OnMessage, OnEvent>> {
+        // Extract flow config BEFORE mem::take replaces props with default
+        let flow_config = FlowConfig {
+            window_size: self.props.flow_window_size,
+            ack_timer_ms: self.props.flow_ack_timer_ms,
+            ack_threshold: self.props.flow_ack_threshold,
+        };
+
         let config = CheckedSessionProps::try_from(mem::take(&mut self.props))?;
 
         // Session props is a **char in C
@@ -285,6 +300,7 @@ where
                 _flow_p: ptr::null_mut(),
                 context: self.context,
                 lifetime: PhantomData,
+                flow_config,
             })
         } else {
             let subcode = get_last_error_info();
@@ -438,6 +454,31 @@ where
         ssl_trust_store_dir: ClientName,
     ) -> Self {
         self.props.ssl_trust_store_dir = Some(ssl_trust_store_dir.into());
+        self
+    }
+
+    /// Set the flow window size for queue subscriptions.
+    /// Controls how many unacknowledged messages can be in flight.
+    /// Default is 255. Higher values allow more throughput.
+    pub fn flow_window_size(mut self, window_size: u32) -> Self {
+        tracing::info!("Setting flow_window_size to {}", window_size);
+        self.props.flow_window_size = Some(window_size);
+        self
+    }
+
+    /// Set the flow ACK timer in milliseconds.
+    /// Forces ACK after this time even if threshold not met.
+    /// Default is 1000ms.
+    pub fn flow_ack_timer_ms(mut self, ack_timer_ms: u32) -> Self {
+        self.props.flow_ack_timer_ms = Some(ack_timer_ms);
+        self
+    }
+
+    /// Set the flow ACK threshold.
+    /// Number of messages before ACK is sent.
+    /// Default is 60.
+    pub fn flow_ack_threshold(mut self, ack_threshold: u32) -> Self {
+        self.props.flow_ack_threshold = Some(ack_threshold);
         self
     }
 }
