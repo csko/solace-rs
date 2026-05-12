@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     message::InboundMessage,
-    session::{FlowConfig, SessionEvent},
+    session::{FlowConfig, FlowFnHolder, SessionEvent},
     util::{
         get_last_error_info, on_event_trampoline, on_flow_event_trampoline, on_message_trampoline,
     },
@@ -227,14 +227,16 @@ where
             }
             _ => (None, ptr::null_mut(), None),
         };
-        let (static_on_flow_event_callback, user_on_flow_event) = match self.on_flow_event {
-            Some(f) => {
-                let tramp = on_flow_event_trampoline(&f);
-                let mut func = Box::new(Box::new(f));
-                (tramp, func.as_mut() as *const _ as *mut _)
-            }
-            _ => (None, ptr::null_mut()),
-        };
+        let (static_on_flow_event_callback, user_on_flow_event, flow_fn_holder) =
+            match self.on_flow_event {
+                Some(f) => {
+                    let tramp = on_flow_event_trampoline(&f);
+                    let func = Box::new(Box::new(f));
+                    let (holder, raw) = FlowFnHolder::new(func);
+                    (tramp, raw as *mut _, Some(holder))
+                }
+                _ => (None, ptr::null_mut(), None),
+            };
         // Function information for Session creation.
         // The application must set the eventInfo callback information. All Sessions must have an event callback registered.
         let mut session_func_info: ffi::solClient_session_createFuncInfo_t =
@@ -296,6 +298,7 @@ where
                 _msg_fn_ptr: msg_func_ptr,
                 _event_fn_ptr: event_func_ptr,
                 _flow_func_info: flow_func_info,
+                _flow_fn_holder: flow_fn_holder,
                 _session_ptr: session_pt,
                 _flow_p: ptr::null_mut(),
                 context: self.context,

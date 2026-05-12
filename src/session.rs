@@ -18,6 +18,46 @@ use tracing::warn;
 
 type Result<T> = std::result::Result<T, SessionError>;
 
+/// Type-erased owner for the flow-event closure `Box<Box<F>>`. The closure
+/// must live as long as the Session because the C library retains a pointer
+/// into it as `user_p` and invokes it on flow events. Carrying it as a
+/// separate generic parameter on `Session` would ripple through `CacheSession`,
+/// so we erase the type and remember how to drop it.
+pub(crate) struct FlowFnHolder {
+    ptr: *mut (),
+    drop_fn: unsafe fn(*mut ()),
+}
+
+// Safety: the underlying `Box<Box<F>>` requires F: Send (enforced by the
+// builder's bound on OnFlowEvent), and the holder owns it exclusively.
+unsafe impl Send for FlowFnHolder {}
+
+impl FlowFnHolder {
+    /// Wrap a `Box<Box<F>>` and return both the holder and a `*mut Box<F>`
+    /// suitable for passing as `user_p`. The holder must outlive any callback
+    /// invocation that uses the pointer.
+    pub(crate) fn new<F>(func: Box<Box<F>>) -> (Self, *mut Box<F>) {
+        let raw = Box::into_raw(func);
+        unsafe fn drop_fn<F>(ptr: *mut ()) {
+            // SAFETY: ptr came from Box::into_raw::<Box<F>>.
+            drop(unsafe { Box::from_raw(ptr as *mut Box<F>) });
+        }
+        (
+            Self {
+                ptr: raw as *mut (),
+                drop_fn: drop_fn::<F>,
+            },
+            raw,
+        )
+    }
+}
+
+impl Drop for FlowFnHolder {
+    fn drop(&mut self) {
+        unsafe { (self.drop_fn)(self.ptr) };
+    }
+}
+
 /// Flow configuration for queue subscriptions
 #[derive(Clone, Copy, Default)]
 pub struct FlowConfig {
@@ -52,6 +92,8 @@ pub struct Session<
     _event_fn_ptr: Option<Box<Box<E>>>,
     #[allow(dead_code, clippy::redundant_allocation)]
     _flow_func_info: ffi::solClient_flow_createFuncInfo_t,
+    #[allow(dead_code)]
+    pub(crate) _flow_fn_holder: Option<FlowFnHolder>,
 
     /// Flow configuration for queue subscriptions
     pub(crate) flow_config: FlowConfig,
